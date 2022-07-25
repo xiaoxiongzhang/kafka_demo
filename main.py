@@ -1,52 +1,68 @@
+import time
 
 from kafka import KafkaConsumer, TopicPartition
-from kafka.errors import kafka_errors
 import traceback
 
 
-topic = "test"
-consumer = KafkaConsumer(
-    topic,
-    bootstrap_servers='127.0.0.1:9092',
-    auto_offset_reset="earliest",
-    group_id="test"
-)
+class KafkaHandler:
 
-try:
-    partitions = [TopicPartition(topic, p) for p in consumer.partitions_for_topic(topic)]
+    def __init__(self, bootstrap_servers):
+        self.bootstrap_servers = bootstrap_servers
 
-    print("start to cal offset:")
+    def consumer(self, topic, auto_offset_reset="earliest", group_id=None):
+        params = dict(
+            bootstrap_servers=self.bootstrap_servers,
+            auto_offset_reset=auto_offset_reset,
+            group_id=group_id
+        )
+        params = {
+            k: params[k]
+            for k in filter(lambda x: params[x], params)
+        }
+        print(params)
 
-    # total
-    toff = consumer.end_offsets(partitions)
-    toff = [(key.partition, toff[key]) for key in toff.keys()]
-    toff.sort()
-    print("total offset: {}".format(str(toff)))
+        consumer = KafkaConsumer(
+            topic,
+            **params
+        )
+        return consumer
 
-    # current
-    coff = [(x.partition, consumer.committed(x)) for x in partitions]
-    coff.sort()
-    print("current offset: {}".format(str(coff)))
+    def consume(self, topic, auto_offset_reset="earliest", group_id=None):
+        consumer = self.consumer(topic, auto_offset_reset, group_id)
+        try:
+            for message in consumer:
+                print(message)
+                # TODO need to do
 
-    # cal sum and left
-    toff_sum = sum([x[1] for x in toff])
-    cur_sum = sum([x[1] for x in coff if x[1] is not None])
-    left_sum = toff_sum - cur_sum
-    print("kafka left: {}".format(left_sum))
-    for message in consumer:
-        print(message)
-except kafka_errors:  # 抛出kafka_errors
-    traceback.format_exc()
+        except:
+            traceback.format_exc()
+
+    def dumps(self, file, topic, auto_offset_reset="earliest", group_id=None, encoding="utf-8"):
+        consumer = self.consumer(topic, auto_offset_reset, group_id)
+
+        # 获取最新的offset
+        partitions = [TopicPartition(topic, p) for p in consumer.partitions_for_topic(topic)]
+        toff = consumer.end_offsets(partitions)
+        last_offset_list = list(toff.values())
+        last_offset_list.sort(reverse=True)
+        current_offset = int(last_offset_list[0]) - 1
+        print(current_offset)
+
+        try:
+            with open(file, "w", encoding=encoding) as f:
+                for message in consumer:
+                    print("offset:", message.offset)
+                    if int(message.offset) >= current_offset or message.timestamp >= int(time.time() * 1000):
+                        print("over!-----------------")
+                        break
+                    f.write(message.value.decode(encoding) + "\n")
+        except:
+            print(traceback.format_exc())
 
 
 if __name__ == '__main__':
-    name = 'phil'
-    n, a, m, e = list(name)
+    topic = "test"
 
-    x = ['p', 'h', 'i', 'l']
-    y = ''.join(['p', 'h', 'i', 'l'])
-    z = 'p' + 'h' + 'i' + 'l'
-    # print(n, a, m, e, list(name), x, y, z)
-    # print('x is list(name):', x is list(name))
-    # print('name is y:', name is y)
-    # print('name is z:', name is z)
+    k = KafkaHandler(bootstrap_servers='127.0.0.1:9092')
+    # k.consume(topic)
+    k.dumps("./test.txt", topic)
